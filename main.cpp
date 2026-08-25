@@ -1,0 +1,137 @@
+#include <Arduino.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
+
+int led_connecting = 23; 
+int led_connected = 18;                 
+int led_not_connected = 21;
+int button = 16;
+
+// Informações do seu WiFi
+const char* ssid = "Bar do pedro";
+const char* password = "03031968";
+
+// IP do computador - Depende da rede que você estiver conectado
+const char* mqtt_server = "192.168.1.107";
+const int mqtt_port = 1883;
+const char* topic = "assunto/sensor";
+const char* topic2 = "assunto/cont. botao"; 
+
+WiFiClient espClient;               
+PubSubClient client(espClient);     
+unsigned long lastMsg = 0;          
+int contador = 0;                   
+
+int button_count = 0;
+int ultimo_estado_botao;
+
+void Connect_to_WiFi(){
+    int i = 0; 
+    Serial.println("Connecting to WiFi ...");
+    
+    while (WiFi.status() != WL_CONNECTED && i <= 10) {
+        digitalWrite(led_connecting, 1);
+        delay(500);
+        digitalWrite(led_connecting, 0);
+        delay(500);
+        
+        Serial.print("."); 
+        i++;
+    }
+    
+    Serial.println("");
+    
+    if (WiFi.status() == WL_CONNECTED) { 
+        Serial.println("Connected to WiFi!");
+        digitalWrite(led_connected, 1);
+        digitalWrite(led_not_connected, 0);
+    } else {                
+        digitalWrite(led_not_connected, 1);
+        digitalWrite(led_connected, 0);
+        Serial.println("Could not connect to the WiFi network"); 
+    }
+}
+
+void reconnect_MQTT() {
+    while (!client.connected()) {   
+        Serial.print("Attempting MQTT connection...");
+        
+        String clientId = "ESP32-";
+        clientId += String(random(0xffff), HEX); 
+        
+        if (client.connect(clientId.c_str())) {
+            Serial.println("connected to MQTT Broker!");
+        } else {
+            Serial.print("failed, rc=");
+            Serial.print(client.state());
+            Serial.println(" try again in 5 seconds");
+            delay(5000);
+        }
+    }
+}
+
+void setup() {
+    pinMode(led_connecting, OUTPUT);
+    pinMode(led_connected, OUTPUT);
+    pinMode(led_not_connected, OUTPUT);
+
+    pinMode(button, INPUT_PULLDOWN);
+
+    Serial.begin(115200);
+    
+    WiFi.begin(ssid, password);
+    Connect_to_WiFi();
+    
+    Serial.print("IP da esp32: ");
+    Serial.println(WiFi.localIP());
+
+    client.setServer(mqtt_server, mqtt_port);
+}
+
+void loop() {
+    if (!client.connected()) {
+        reconnect_MQTT();
+    }
+    
+    client.loop();
+
+    bool estado_botao = digitalRead(button);
+
+    if (estado_botao == HIGH && ultimo_estado_botao == LOW){
+        button_count = button_count + 1; 
+        Serial.print("Botao clicado! Total: ");
+        Serial.println(button_count);
+    }
+
+    ultimo_estado_botao = estado_botao;
+
+    unsigned long now = millis();
+    // envia um dado a cada 5s
+    if (now - lastMsg > 5000) {  
+        lastMsg = now;
+        contador++;
+
+        // Mensagem 1: Temperatura
+        String payload = "{\"sensor\":\"temperatura\",\"valor\":" + String(20 + random(0, 10)) + ",\"loop\":" + String(contador) + "}";
+
+        Serial.println("Enviando para o Broker...");
+        Serial.println(payload);
+
+        if(client.publish(topic, payload.c_str())) {
+            Serial.println("Publicado com sucesso!");
+        } else {
+            Serial.println("Erro ao publicar. O Broker está rodando?");
+        }
+
+        // Mensagem 2 contador botao
+        String payload2 = "Cont. botao = " + String(button_count);
+        Serial.println (button_count);
+        Serial.println(payload2);
+
+        if (client.publish(topic2, payload2.c_str())) {
+            Serial.println("payload2 publicado com sucesso");    
+        } else {
+            Serial.println("erro ao publicar");
+        }
+    }
+}
