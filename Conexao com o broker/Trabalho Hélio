@@ -5,26 +5,61 @@
 int Motor = 25;
 
 // Informações do seu WiFi
-const char* ssid = "Ferreira casa";
-const char* password = "09111991";
+const char* ssid = "Bar do pedro";
+const char* password = "03031968";
 
-// IP do computador - Depende da rede que você estiver conectado
+// IP do computador
 const char* mqtt_server = "192.168.1.109";
 const int mqtt_port = 1883;
-const char* topic = "assunto/sensor"; 
+
+// Tópicos MQTT
+const char* topic_sensor = "assunto/sensor";   // Para ENVIAR dados (publish)
+const char* topic_comando = "assunto/comando"; // Para RECEBER dados (subscribe)
 
 WiFiClient espClient;               
 PubSubClient client(espClient);     
 unsigned long lastMsg = 0;          
-int contador = 0;                   
+int contador = 0;                  
+
+// 1. Função Callback: executada automaticamente ao receber uma mensagem
+void callback(char* topic, byte* payload, unsigned int length) {
+    String mensagem = "";
+    
+    for (int i = 0; i < length; i++) {
+        mensagem += (char)payload[i];
+    }
+
+    Serial.print("Mensagem recebida no topico [");
+    Serial.print(topic);
+    Serial.print("]: ");
+    Serial.println(mensagem);
+
+    // Lógica para acionar o motor baseada no conteúdo da mensagem
+    if (String(topic) == topic_comando) {
+        if (mensagem == "Rapido" || mensagem =="3"){
+            analogWrite( Motor, 50);
+            Serial.println("-> Motor rapido!");
+        } else if (mensagem == "Moderado" || mensagem =="2"){
+            analogWrite( Motor, 30);
+            Serial.println("-> Motor moderado!");
+        } else if (mensagem == "Devagar" || mensagem == "1") {
+            analogWrite(Motor, 10);
+            Serial.println("-> Motor devagar!");
+        } else if (mensagem == "Desligar" || mensagem == "0") {
+            analogWrite(Motor, LOW);
+            Serial.println("-> Motor DESLIGADO!");
+        }
+    }
+}
 
 void Connect_to_WiFi(){
     int i = 0; 
     Serial.println("Connecting to WiFi ...");
     
-     WiFi.begin(ssid, password);
+    WiFi.begin(ssid, password);
 
-    while (WiFi.status() != WL_CONNECTED && i <= 10) { 
+    while (WiFi.status() != WL_CONNECTED && i <= 20) { 
+        delay(500); // Aguarda o hardware autenticar
         Serial.print("."); 
         i++;
     }
@@ -33,7 +68,9 @@ void Connect_to_WiFi(){
     
     if (WiFi.status() == WL_CONNECTED) { 
         Serial.println("Connected to WiFi!");
-          } else {                
+        Serial.print("IP da esp32: ");
+        Serial.println(WiFi.localIP());
+    } else {                
         Serial.println("Could not connect to the WiFi network"); 
     }
 }
@@ -47,6 +84,11 @@ void reconnect_MQTT() {
         
         if (client.connect(clientId.c_str())) {
             Serial.println("connected to MQTT Broker!");
+            
+            // 2. Inscreve-se no tópico de comando assim que reconecta
+            client.subscribe(topic_comando);
+            Serial.print("Inscrito no topico: ");
+            Serial.println(topic_comando);
         } else {
             Serial.print("failed, rc=");
             Serial.print(client.state());
@@ -58,46 +100,43 @@ void reconnect_MQTT() {
 
 void setup() {
     pinMode(Motor, OUTPUT);
+    digitalWrite(Motor, LOW); // Inicia desligado
 
     Serial.begin(115200);
     
-    WiFi.begin(ssid, password);
     Connect_to_WiFi();
-    
-    Serial.print("IP da esp32: ");
-    Serial.println(WiFi.localIP());
 
     client.setServer(mqtt_server, mqtt_port);
+    
+    // Configura a função que trata as mensagens recebidas
+    client.setCallback(callback);
 }
 
 void loop() {
-// Garante que a esp esteja devidamente conectada à rede e ao broker
+    if (WiFi.status() != WL_CONNECTED){
+        Connect_to_WiFi();
+    }
+
     if (!client.connected()) {
         reconnect_MQTT();
     }
-
-    if (WiFi.status() != WL_CONNECTED()){
-        Connect_to_WiFi();
-    }
     
+    // 3. Processa mensagens recebidas e mantém o ping com o broker
     client.loop();
 
     unsigned long now = millis();
-    // envia um dado a cada 5s
+    // Envia um dado a cada 5s
     if (now - lastMsg > 5000) {  
         lastMsg = now;
         contador++;
 
-        // Mensagem 1: Temperatura
         String payload = "{\"sensor\":\"temperatura\",\"valor\":" + String(20 + random(0, 10)) + ",\"loop\":" + String(contador) + "}";
 
         Serial.println("Enviando para o Broker...");
-        Serial.println(payload);
-
-        if(client.publish(topic, payload.c_str())) {
+        if(client.publish(topic_sensor, payload.c_str())) {
             Serial.println("Publicado com sucesso!");
         } else {
-            Serial.println("Erro ao publicar. O Broker está rodando?");
+            Serial.println("Erro ao publicar.");
         }
     }
 }
