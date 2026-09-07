@@ -2,39 +2,29 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 
-int led_connecting = 23; 
-int led_connected = 18;                 
-int led_not_connected = 21;
-int button = 16;
+int Motor = 25;
 
 // Informações do seu WiFi
-const char* ssid = "Bar do pedro";
-const char* password = "03031968";
+const char* ssid = "Ferreira casa";
+const char* password = "09111991";
 
 // IP do computador - Depende da rede que você estiver conectado
-const char* mqtt_server = "192.168.1.107";
+const char* mqtt_server = "192.168.1.109";
 const int mqtt_port = 1883;
-const char* topic = "assunto/sensor";
-const char* topic2 = "assunto/cont. botao"; 
+const char* topic = "assunto/sensor"; 
 
 WiFiClient espClient;               
 PubSubClient client(espClient);     
 unsigned long lastMsg = 0;          
 int contador = 0;                   
 
-int button_count = 0;
-int ultimo_estado_botao;
-
 void Connect_to_WiFi(){
     int i = 0; 
     Serial.println("Connecting to WiFi ...");
     
-    while (WiFi.status() != WL_CONNECTED && i <= 10) {
-        digitalWrite(led_connecting, 1);
-        delay(500);
-        digitalWrite(led_connecting, 0);
-        delay(500);
-        
+     WiFi.begin(ssid, password);
+
+    while (WiFi.status() != WL_CONNECTED && i <= 10) { 
         Serial.print("."); 
         i++;
     }
@@ -43,11 +33,7 @@ void Connect_to_WiFi(){
     
     if (WiFi.status() == WL_CONNECTED) { 
         Serial.println("Connected to WiFi!");
-        digitalWrite(led_connected, 1);
-        digitalWrite(led_not_connected, 0);
-    } else {                
-        digitalWrite(led_not_connected, 1);
-        digitalWrite(led_connected, 0);
+          } else {                
         Serial.println("Could not connect to the WiFi network"); 
     }
 }
@@ -71,11 +57,7 @@ void reconnect_MQTT() {
 }
 
 void setup() {
-    pinMode(led_connecting, OUTPUT);
-    pinMode(led_connected, OUTPUT);
-    pinMode(led_not_connected, OUTPUT);
-
-    pinMode(button, INPUT_PULLDOWN);
+    pinMode(Motor, OUTPUT);
 
     Serial.begin(115200);
     
@@ -89,21 +71,16 @@ void setup() {
 }
 
 void loop() {
+// Garante que a esp esteja devidamente conectada à rede e ao broker
     if (!client.connected()) {
         reconnect_MQTT();
     }
+
+    if (WiFi.status() != WL_CONNECTED()){
+        Connect_to_WiFi();
+    }
     
     client.loop();
-
-    bool estado_botao = digitalRead(button);
-
-    if (estado_botao == HIGH && ultimo_estado_botao == LOW){
-        button_count = button_count + 1; 
-        Serial.print("Botao clicado! Total: ");
-        Serial.println(button_count);
-    }
-
-    ultimo_estado_botao = estado_botao;
 
     unsigned long now = millis();
     // envia um dado a cada 5s
@@ -121,17 +98,6 @@ void loop() {
             Serial.println("Publicado com sucesso!");
         } else {
             Serial.println("Erro ao publicar. O Broker está rodando?");
-        }
-
-        // Mensagem 2 contador botao
-        String payload2 = "Cont. botao = " + String(button_count);
-        Serial.println (button_count);
-        Serial.println(payload2);
-
-        if (client.publish(topic2, payload2.c_str())) {
-            Serial.println("payload2 publicado com sucesso");    
-        } else {
-            Serial.println("erro ao publicar");
         }
     }
 }
