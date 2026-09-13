@@ -5,21 +5,25 @@
 #include <LiquidCrystal_I2C.h>
 #include <DHT.h>
 
-// --- ATRIBUIÇÃO DE PINOS (APENAS LADO DIREITO) ---
 #define DHTPIN     32   // Sinal do DHT11 (GPIO 32)
 #define DHTTYPE    DHT11
 #define SDA_PIN    33   // I2C SDA (GPIO 33)
 #define SCL_PIN    25   // I2C SCL (GPIO 25)
-#define RELE_PIN   26   // Controle do Relé (GPIO 26)
+#define RELE_PIN   14  // Controle do Relé (GPIO 26)
+#define LED_teste  27
+
+const char* mqtt_user = "2101";
+const char* mqtt_pass = "Natalia102030#";
+
 
 // Instancia o DHT11 e o LCD
 DHT dht(DHTPIN, DHTTYPE);
 LiquidCrystal_I2C lcd(0x3F, 16, 2);
 
 // --- REDE E MQTT ---
-const char* ssid = "Bar do pedro";
-const char* password = "03031968";
-const char* mqtt_server = "192.168.1.109";
+const char* ssid = "Note_natalia/pedro";
+const char* password = "21011997";
+const char* mqtt_server = "192.168.1.104";
 const int mqtt_port = 1883;
 
 // --- TÓPICOS MQTT ---
@@ -126,7 +130,7 @@ void Connect_to_WiFi() {
     }
 }
 
-void reconnect_MQTT() {
+void reconnect_MQTT() {    
     while (!client.connected()) {
         Serial.print("Attempting MQTT connection...");
         String clientId = "ESP32-ProjetoGeral-";
@@ -145,8 +149,15 @@ void reconnect_MQTT() {
 }
 
 void setup() {
+    pinMode(LED_teste, OUTPUT);
+    digitalWrite (LED_teste, LOW);
+    delay(2500);
+    digitalWrite (LED_teste, HIGH);
+
     pinMode(RELE_PIN, OUTPUT);
-    digitalWrite(RELE_PIN, LOW); // Inicia relé desligado
+    digitalWrite(RELE_PIN, HIGH); 
+    delay (5000);
+    digitalWrite(RELE_PIN, LOW);
 
     Serial.begin(115200);
 
