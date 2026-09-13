@@ -3,10 +3,18 @@
 #include <PubSubClient.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
+#include <DHT.h>
 
-// --- HARDWARE ---
-int Motor = 25; // Pino do Motor/Ventilador (GPIO 25)
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+// --- ATRIBUIÇÃO DE PINOS (APENAS LADO DIREITO) ---
+#define DHTPIN     32   // Sinal do DHT11 (GPIO 32)
+#define DHTTYPE    DHT11
+#define SDA_PIN    33   // I2C SDA (GPIO 33)
+#define SCL_PIN    25   // I2C SCL (GPIO 25)
+#define RELE_PIN   26   // Controle do Relé (GPIO 26)
+
+// Instancia o DHT11 e o LCD
+DHT dht(DHTPIN, DHTTYPE);
+LiquidCrystal_I2C lcd(0x3F, 16, 2);
 
 // --- REDE E MQTT ---
 const char* ssid = "Bar do pedro";
@@ -25,16 +33,20 @@ PubSubClient client(espClient);
 // --- VARIÁVEIS DE CONTROLE ---
 unsigned long lastMsg = 0;
 float temperaturaAtual = 0.0;
-bool modoManual = false;       // Se true, ignora o controle por temperatura
-bool estadoVentilador = false; // Estado atual do motor
+bool modoManual = false;       // Se true, ignora o controle automático por temperatura
+bool estadoVentilador = false; // Estado atual do relé
 
 // Atualiza o Display LCD I2C
 void atualizarLCD() {
     lcd.setCursor(0, 0);
     lcd.print("Temp: ");
-    lcd.print(temperaturaAtual, 1);
-    lcd.print((char)223); // Símbolo de grau (°)
-    lcd.print("C   ");
+    if (isnan(temperaturaAtual)) {
+        lcd.print("ERRO   ");
+    } else {
+        lcd.print(temperaturaAtual, 1);
+        lcd.print((char)223); // Símbolo de grau (°)
+        lcd.print("C   ");
+    }
 
     lcd.setCursor(0, 1);
     lcd.print("Fan: ");
@@ -42,13 +54,14 @@ void atualizarLCD() {
     lcd.print(modoManual ? "[M]" : "[A]");
 }
 
-// Controla o pino do motor e publica alteração de status
+// Aciona o Relé e envia o status para o MQTT
 void acionarVentilador(bool ligar) {
     if (estadoVentilador != ligar) {
         estadoVentilador = ligar;
         
-        // Liga em velocidade total ou desliga
-        analogWrite(Motor, estadoVentilador ? 255 : 0);
+        // Acionamento digital do relé
+        // (Altere para LOW se o seu módulo de relé for Ativo em Nível Baixo)
+        digitalWrite(RELE_PIN, estadoVentilador ? HIGH : LOW);
         
         // Publica o novo status no MQTT
         String statusMsg = estadoVentilador ? "LIGADO" : "DESLIGADO";
@@ -59,10 +72,10 @@ void acionarVentilador(bool ligar) {
     atualizarLCD();
 }
 
-// Callback: Recebe tanto as temperaturas enviadas quanto os comandos manuais
+// Callback: Trata as mensagens recebidas via MQTT
 void callback(char* topic, byte* payload, unsigned int length) {
     String mensagem = "";
-    for (int i = 0; i < length; i++) {
+    for (unsigned int i = 0; i < length; i++) {
         mensagem += (char)payload[i];
     }
     mensagem.trim();
@@ -73,35 +86,19 @@ void callback(char* topic, byte* payload, unsigned int length) {
     Serial.print("]: ");
     Serial.println(mensagem);
 
-    // 1. Processa a Temperatura enviada (Seja pelo próprio loop ou externa)
-    if (topicoStr == topic_temp) {
-        temperaturaAtual = mensagem.toFloat();
-
-        // Lógica automática (só executa se NÃO estiver em modo manual)
-        if (!modoManual) {
-            if (temperaturaAtual >= 30.0) {
-                acionarVentilador(true);  // Liga se >= 30°C
-            } else if (temperaturaAtual <= 25.0) {
-                acionarVentilador(false); // Desliga se <= 25°C
-            }
-        }
-        atualizarLCD();
-    }
-
-    // 2. Processa Comandos Manuais do MQTT Explorer
+    // Processa comandos manuais de sobrescrita
     if (topicoStr == topic_comando) {
         if (mensagem == "LIGAR" || mensagem == "1") {
-            modoManual = true; // Entra no modo manual
+            modoManual = true;
             acionarVentilador(true);
             Serial.println("-> Comando recebido: Sobrescrita MANUAL (LIGAR)");
         } else if (mensagem == "DESLIGAR" || mensagem == "0") {
-            modoManual = true; // Entra no modo manual
+            modoManual = true;
             acionarVentilador(false);
             Serial.println("-> Comando recebido: Sobrescrita MANUAL (DESLIGAR)");
         } else if (mensagem == "AUTO") {
-            modoManual = false; // Retorna ao modo automático
+            modoManual = false;
             Serial.println("-> Modo retornado para AUTOMATICO");
-            // Reavalia imediatamente a temperatura atual
             if (temperaturaAtual >= 30.0) acionarVentilador(true);
             else if (temperaturaAtual <= 25.0) acionarVentilador(false);
         }
@@ -137,9 +134,6 @@ void reconnect_MQTT() {
 
         if (client.connect(clientId.c_str())) {
             Serial.println("connected to MQTT Broker!");
-            
-            // Inscreve-se nos tópicos de temperatura e de comandos manuais
-            client.subscribe(topic_temp);
             client.subscribe(topic_comando);
         } else {
             Serial.print("failed, rc=");
@@ -151,13 +145,18 @@ void reconnect_MQTT() {
 }
 
 void setup() {
-    pinMode(Motor, OUTPUT);
-    analogWrite(Motor, 0); // Inicia motor desligado
+    pinMode(RELE_PIN, OUTPUT);
+    digitalWrite(RELE_PIN, LOW); // Inicia relé desligado
 
     Serial.begin(115200);
 
-    // Inicialização do LCD I2C (SDA = GPIO 21, SCL = GPIO 22)
-    Wire.begin(21, 22);
+    // Inicializa o barramento I2C nos GPIOs 33 (SDA) e 25 (SCL)
+    Wire.begin(SDA_PIN, SCL_PIN);
+    
+    // Inicializa o Sensor DHT11
+    dht.begin();
+
+    // Inicializa o Display LCD I2C
     lcd.init();
     lcd.backlight();
     lcd.setCursor(0, 0);
@@ -167,6 +166,9 @@ void setup() {
 
     client.setServer(mqtt_server, mqtt_port);
     client.setCallback(callback);
+
+     lcd.print("Sistema inicializado ");
+     delay (5000);
 }
 
 void loop() {
@@ -175,19 +177,34 @@ void loop() {
     client.loop();
 
     unsigned long now = millis();
-    // A cada 5 segundos gera uma nova temperatura aleatória entre 20°C e 35°C
-    if (now - lastMsg > 5000) {
+    // Leitura real do DHT11 a cada 3 segundos
+    if (now - lastMsg > 3000) {
         lastMsg = now;
 
-        // Gera o valor aleatório
-        int tempAleatoria = 20 + random(0, 16); // Valores de 20 a 35
+        float tempLida = dht.readTemperature();
 
-        // Publica no tópico de temperatura
-        String payload = String(tempAleatoria);
-        client.publish(topic_temp, payload.c_str());
-        
-        Serial.print("Temperatura gerada e publicada: ");
-        Serial.print(payload);
-        Serial.println(" °C");
+        if (!isnan(tempLida)) {
+            temperaturaAtual = tempLida;
+
+            // Publica a leitura real no MQTT
+            String payload = String(temperaturaAtual, 1);
+            client.publish(topic_temp, payload.c_str());
+            
+            Serial.print("Temperatura lida e publicada: ");
+            Serial.print(payload);
+            Serial.println(" °C");
+
+            // Lógica de acionamento automático por histerese
+            if (!modoManual) {
+                if (temperaturaAtual >= 30.0) {
+                    acionarVentilador(true);  // Liga em >= 30°C
+                } else if (temperaturaAtual <= 25.0) {
+                    acionarVentilador(false); // Desliga em <= 25°C
+                }
+            }
+            atualizarLCD();
+        } else {
+            Serial.println("Falha ao ler o sensor DHT11!");
+        }
     }
 }
