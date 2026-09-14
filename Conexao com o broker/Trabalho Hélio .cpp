@@ -9,12 +9,10 @@
 #define DHTTYPE    DHT11
 #define SDA_PIN    33   // I2C SDA (GPIO 33)
 #define SCL_PIN    25   // I2C SCL (GPIO 25)
-#define RELE_PIN   14  // Controle do Relé (GPIO 26)
-#define LED_teste  27
+#define RELE_PIN   12  // Controle do Relé (GPIO 26)
 
 const char* mqtt_user = "2101";
 const char* mqtt_pass = "Natalia102030#";
-
 
 // Instancia o DHT11 e o LCD
 DHT dht(DHTPIN, DHTTYPE);
@@ -149,16 +147,6 @@ void reconnect_MQTT() {
 }
 
 void setup() {
-    pinMode(LED_teste, OUTPUT);
-    digitalWrite (LED_teste, LOW);
-    delay(2500);
-    digitalWrite (LED_teste, HIGH);
-
-    pinMode(RELE_PIN, OUTPUT);
-    digitalWrite(RELE_PIN, HIGH); 
-    delay (5000);
-    digitalWrite(RELE_PIN, LOW);
-
     Serial.begin(115200);
 
     // Inicializa o barramento I2C nos GPIOs 33 (SDA) e 25 (SCL)
@@ -207,10 +195,10 @@ void loop() {
 
             // Lógica de acionamento automático por histerese
             if (!modoManual) {
-                if (temperaturaAtual >= 30.0) {
-                    acionarVentilador(true);  // Liga em >= 30°C
+                if (temperaturaAtual >= 30.0) {         // Pode alterar o valor
+                    acionarVentilador(true);            // Liga em >= 30°C
                 } else if (temperaturaAtual <= 25.0) {
-                    acionarVentilador(false); // Desliga em <= 25°C
+                    acionarVentilador(false);           // Desliga em <= 25°C
                 }
             }
             atualizarLCD();
